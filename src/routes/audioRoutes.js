@@ -3,6 +3,7 @@ import multer from 'multer';
 import { clasificarAudio, obtenerHistorial, descargarReporte, obtenerEstadoPDF } from '../controladores/audioControlador.js';
 import { verificarToken } from '../middlewares/verificarToken.js';
 import { limitadorDescargaReporte } from '../middlewares/descargaRateLimit.js';
+import { audioLimiter, estadoPdfLimiter } from '../app.js';
 
 const ALLOWED_EXTENSIONS = ['.mp3', '.wav', '.flac', '.enc'];
 const MAX_SIZE = 20 * 1024 * 1024;
@@ -24,9 +25,9 @@ const upload = multer({ storage, fileFilter, limits: { fileSize: MAX_SIZE } });
 
 const router = Router();
 
-router.post('/clasificar', verificarToken, upload.single('audio'), clasificarAudio);
+router.post('/clasificar', verificarToken, audioLimiter, upload.single('audio'), clasificarAudio);
 router.get('/historial', verificarToken, obtenerHistorial);
-router.get('/estado-pdf/:analisis_id', verificarToken, obtenerEstadoPDF);
+router.get('/estado-pdf/:analisis_id', estadoPdfLimiter, verificarToken, obtenerEstadoPDF);
 router.get('/reportes/:analisis_id/descargar', verificarToken, limitadorDescargaReporte, descargarReporte);
 
 export default router;
