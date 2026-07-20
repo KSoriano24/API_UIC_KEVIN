@@ -4,8 +4,8 @@ import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 1. URL DE TU HUGGING FACE SPACE
-const HF_SPACE_URL = "https://hf.space/embed/tu_usuario/tu_nombre_del_space/+/clasificar"; 
+// 1. URL EXACTA DE TU API EN HUGGING FACE SPACE (CORREGIDA)
+const HF_SPACE_URL = "https://kevin24sm-api-modelo.hf.space/proxy/7860/clasificar"; 
 
 export function iniciarServidorPython() {
   console.log("[Node] Conectado exitosamente con el servidor remoto en Hugging Face.");
@@ -17,10 +17,12 @@ export const clasificar = async (audioPath) => {
       throw new Error(`El archivo de audio no existe en la ruta: ${audioPath}`);
     }
 
-    // 2. Crear un FormData usando las herramientas nativas de Node v20
+    // 2. Crear FormData usando las herramientas nativas de Node v20
     const formData = new FormData();
     const archivoBuffer = fs.readFileSync(audioPath);
-    const blob = new Blob([archivoBuffer]);
+    
+    // CORRECCIÓN: Añadimos el MIME type explícito para que FastAPI lo reconozca sin problemas
+    const blob = new Blob([archivoBuffer], { type: "audio/mpeg" });
     formData.append("file", blob, path.basename(audioPath));
 
     console.log(`[Node] Enviando ${path.basename(audioPath)} a Hugging Face para análisis...`);
@@ -33,7 +35,7 @@ export const clasificar = async (audioPath) => {
     const respuesta = await fetch(HF_SPACE_URL, {
       method: "POST",
       body: formData,
-      signal: controladorTimeout.signal // Reemplaza al dispatcher de undici
+      signal: controladorTimeout.signal
     });
 
     // Limpiamos el temporizador en cuanto el servidor responda
