@@ -1,48 +1,43 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import { Agent } from "undici";
 
-// Nota: Eliminamos child_process y spawn porque ya no necesitamos levantar Python localmente.
-
-// Mantenemos la configuración de directorios por si la necesitas en otras partes de tu app
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 1. URL DE TU HUGGING FACE SPACE (Reemplaza con tu URL directa obtenida en 'Embed this Space')
-const HF_SPACE_URL = "https://kevin24sm-api-modelo.hf.space/clasificar"; 
-
-// 2. Configuramos un agente de Node para darle tiempo al modelo de procesar el audio sin colgarse
-const agentDispatcher = new Agent({
-  headersTimeout: 180000, // 3 minutos máximo para recibir respuesta
-  bodyTimeout: 180000
-});
+// 1. URL DE TU HUGGING FACE SPACE
+const HF_SPACE_URL = "https://tu_usuario-tu_space.hf.space/clasificar"; 
 
 export function iniciarServidorPython() {
-  // Ya no hace nada porque el servidor está 24/7 en Hugging Face,
-  // pero la dejamos declarada vacía por si tu app la llama desde el index.js/server.js y no te lance error.
   console.log("[Node] Conectado exitosamente con el servidor remoto en Hugging Face.");
 }
 
 export const clasificar = async (audioPath) => {
   try {
-    // Verificamos que el archivo de audio exista localmente antes de enviarlo
     if (!fs.existsSync(audioPath)) {
       throw new Error(`El archivo de audio no existe en la ruta: ${audioPath}`);
     }
 
-    // 3. Convertir el archivo local a un FormData para mandarlo por la red
+    // 2. Crear un FormData usando las herramientas nativas de Node v20
     const formData = new FormData();
-    const blob = new Blob([fs.readFileSync(audioPath)]);
+    const archivoBuffer = fs.readFileSync(audioPath);
+    const blob = new Blob([archivoBuffer]);
     formData.append("file", blob, path.basename(audioPath));
 
     console.log(`[Node] Enviando ${path.basename(audioPath)} a Hugging Face para análisis...`);
 
-    // 4. Hacemos la petición HTTP a tu Space remoto
+    // 3. Crear un Timeout nativo de 3 minutos (180,000 milisegundos)
+    const controladorTimeout = new AbortController();
+    const timeoutId = setTimeout(() => controladorTimeout.abort(), 180000);
+
+    // 4. Petición HTTP directa
     const respuesta = await fetch(HF_SPACE_URL, {
       method: "POST",
       body: formData,
-      dispatcher: agentDispatcher // Evita el HeadersTimeoutError
+      signal: controladorTimeout.signal // Reemplaza al dispatcher de undici
     });
+
+    // Limpiamos el temporizador en cuanto el servidor responda
+    clearTimeout(timeoutId);
 
     if (!respuesta.ok) {
       throw new Error(`Hugging Face respondió con estado ${respuesta.status}`);
@@ -54,10 +49,13 @@ export const clasificar = async (audioPath) => {
       throw new Error(`Hugging Face reportó error: ${resultado.error}`);
     }
 
-    // Retorna el JSON con los resultados de la clasificación tal como lo espera tu controlador
     return resultado;
 
   } catch (error) {
+    if (error.name === "AbortError") {
+      console.error("Error: La petición a Hugging Face excedió el tiempo límite (Timeout).");
+      throw new Error("El servidor de Hugging Face tardó demasiado en responder.");
+    }
     console.error("Error en la clasificación remota:", error.message);
     throw error;
   }
