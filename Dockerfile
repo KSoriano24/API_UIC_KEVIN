@@ -27,4 +27,4 @@ RUN mkdir -p uploads
 # Render inyecta PORT; exponemos el default por documentación
 EXPOSE 10000
 
-CMD ["node", "index.js"]
+CMD ["node", "src/index.js"]
