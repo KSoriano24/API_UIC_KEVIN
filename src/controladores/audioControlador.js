@@ -237,9 +237,6 @@ export const clasificarAudio = async (req, res) => {
             console.warn(`PDF no generado para analisis_id=${insertId}`);
           }
         } catch (err) {
-          // No tumbamos la respuesta completa: el análisis ya se guardó,
-          // solo el PDF falló. El usuario podrá reintentar la descarga
-          // y el flujo de "regenerar" en descargarReporte se hará cargo.
           console.error('Error generando/subiendo PDF:', err);
         }
 
