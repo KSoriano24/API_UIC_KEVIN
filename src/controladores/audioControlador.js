@@ -81,9 +81,6 @@ async function enviarPDFDesdeCloudinary(res, publicId, analisisId) {
 }
 
 // ─── Helper: genera el PDF y lo sube a Cloudinary EN BACKGROUND ───────────
-// No se exporta como parte del request/response cycle: se dispara y el
-// resultado se refleja en la tabla `reportes` cuando termine. El frontend
-// se entera vía polling (ver obtenerEstadoPDF).
 function generarYSubirPDFEnBackground(pdfData, insertId) {
   console.time(`pdf-gen-${insertId}`);
   generarReportePDF(pdfData)
@@ -243,7 +240,6 @@ export const clasificarAudio = async (req, res) => {
           fecha: fechaGeneracion,
         };
 
-        // Se dispara en background: la respuesta al frontend no espera esto.
         generarYSubirPDFEnBackground(pdfData, insertId);
 
       } else {
@@ -255,7 +251,7 @@ export const clasificarAudio = async (req, res) => {
       mensaje: 'Clasificación realizada',
       analisis_id: insertId,
       reporte_id: null,
-      pdf_listo: false, // el frontend debe hacer polling a /audio/estado-pdf/:analisis_id
+      pdf_listo: false,
       ...resultado
     });
 
@@ -453,6 +449,7 @@ export const descargarReporte = async (req, res) => {
 
     const analisis = rows[0];
 
+    // Caso 1: ya existe un PDF subido a Cloudinary (reporte_public_id)
     if (analisis.reporte_public_id) {
       try {
         await enviarPDFDesdeCloudinary(res, analisis.reporte_public_id, analisis_id);
@@ -499,6 +496,7 @@ export const descargarReporte = async (req, res) => {
       return res.status(500).json({ error: 'Error generando reporte' });
     }
 
+    // Sube el PDF recién generado a Cloudinary y limpia el temporal local
     let publicId;
     try {
       publicId = await subirYLimpiar(reportePathLocal, analisis.id);
