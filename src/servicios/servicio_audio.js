@@ -1,77 +1,64 @@
-import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { Agent } from "undici";
 
+// Nota: Eliminamos child_process y spawn porque ya no necesitamos levantar Python localmente.
+
+// Mantenemos la configuración de directorios por si la necesitas en otras partes de tu app
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PYTHON_CMD = process.platform === 'win32'
-  ? 'C:\\Users\\KEVIN SORIANO\\AppData\\Local\\Programs\\Python\\Python311\\python.exe'
-  : 'python3';
-const NUMBA_CACHE_DIR = path.join(__dirname, '../uploads/__numba_cache__');
-if (!fs.existsSync(NUMBA_CACHE_DIR)) fs.mkdirSync(NUMBA_CACHE_DIR, { recursive: true });
 
-const PYTHON_SERVER_PORT = 8001;
-let pythonServerProcess = null;
-let servidorListo = false;
+// 1. URL DE TU HUGGING FACE SPACE (Reemplaza con tu URL directa obtenida en 'Embed this Space')
+const HF_SPACE_URL = "https://tu_usuario-tu_space.hf.space/clasificar"; 
+
+// 2. Configuramos un agente de Node para darle tiempo al modelo de procesar el audio sin colgarse
+const agentDispatcher = new Agent({
+  headersTimeout: 180000, // 3 minutos máximo para recibir respuesta
+  bodyTimeout: 180000
+});
 
 export function iniciarServidorPython() {
-  if (pythonServerProcess) return;
-
-  const scriptDir = path.join(__dirname, "../python");
-  const pythonEnv = { ...process.env, MPLBACKEND: 'Agg', NUMBA_CACHE_DIR };
-
-  pythonServerProcess = spawn(
-    PYTHON_CMD,
-    ["-m", "uvicorn", "servidor_clasificador:app", "--host", "127.0.0.1", "--port", String(PYTHON_SERVER_PORT)],
-    { cwd: scriptDir, env: pythonEnv }
-  );
-
-  pythonServerProcess.stdout.on("data", (d) => console.log(`[python-server] ${d}`));
-  pythonServerProcess.stderr.on("data", (d) => console.log(`[python-server] ${d}`));
-
-  pythonServerProcess.on("close", (code) => {
-    console.error(`Servidor Python de clasificación terminó con código ${code}`);
-    pythonServerProcess = null;
-    servidorListo = false;
-  });
-}
-
-async function esperarServidorListo(maxIntentos = 90) {
-  for (let i = 0; i < maxIntentos; i++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${PYTHON_SERVER_PORT}/health`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.model_loaded) {
-          servidorListo = true;
-          return;
-        }
-      }
-    } catch {
-      // aún no responde, seguimos esperando
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  throw new Error("El servidor Python de clasificación no arrancó a tiempo");
+  // Ya no hace nada porque el servidor está 24/7 en Hugging Face,
+  // pero la dejamos declarada vacía por si tu app la llama desde el index.js/server.js y no te lance error.
+  console.log("[Node] Conectado exitosamente con el servidor remoto en Hugging Face.");
 }
 
 export const clasificar = async (audioPath) => {
-  if (!pythonServerProcess) iniciarServidorPython();
-  if (!servidorListo) await esperarServidorListo();
+  try {
+    // Verificamos que el archivo de audio exista localmente antes de enviarlo
+    if (!fs.existsSync(audioPath)) {
+      throw new Error(`El archivo de audio no existe en la ruta: ${audioPath}`);
+    }
 
-  const respuesta = await fetch(`http://127.0.0.1:${PYTHON_SERVER_PORT}/clasificar`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ audio_path: audioPath }),
-  });
+    // 3. Convertir el archivo local a un FormData para mandarlo por la red
+    const formData = new FormData();
+    const blob = new Blob([fs.readFileSync(audioPath)]);
+    formData.append("file", blob, path.basename(audioPath));
 
-  if (!respuesta.ok) {
-    throw new Error(`Servidor Python respondió con estado ${respuesta.status}`);
+    console.log(`[Node] Enviando ${path.basename(audioPath)} a Hugging Face para análisis...`);
+
+    // 4. Hacemos la petición HTTP a tu Space remoto
+    const respuesta = await fetch(HF_SPACE_URL, {
+      method: "POST",
+      body: formData,
+      dispatcher: agentDispatcher // Evita el HeadersTimeoutError
+    });
+
+    if (!respuesta.ok) {
+      throw new Error(`Hugging Face respondió con estado ${respuesta.status}`);
+    }
+
+    const resultado = await respuesta.json();
+
+    if (resultado.error) {
+      throw new Error(`Hugging Face reportó error: ${resultado.error}`);
+    }
+
+    // Retorna el JSON con los resultados de la clasificación tal como lo espera tu controlador
+    return resultado;
+
+  } catch (error) {
+    console.error("Error en la clasificación remota:", error.message);
+    throw error;
   }
-
-  const resultado = await respuesta.json();
-  if (resultado.error) {
-    throw new Error(`Python reportó error: ${resultado.error}`);
-  }
-  return resultado;
 };
