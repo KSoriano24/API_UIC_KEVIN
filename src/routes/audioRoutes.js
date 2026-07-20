@@ -2,8 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { clasificarAudio, obtenerHistorial, descargarReporte, obtenerEstadoPDF } from '../controladores/audioControlador.js';
 import { verificarToken } from '../middlewares/verificarToken.js';
-import { limitadorDescargaReporte } from '../middlewares/descargaRateLimit.js';
-import { audioLimiter, estadoPdfLimiter } from '../app.js';
+import { limitadorDescargaReporte, audioLimiter, estadoPdfLimiter } from '../middlewares/descargaRateLimit.js';
 
 const ALLOWED_EXTENSIONS = ['.mp3', '.wav', '.flac', '.enc'];
 const MAX_SIZE = 20 * 1024 * 1024;
