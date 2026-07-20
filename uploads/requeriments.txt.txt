@@ -1,0 +1,6 @@
+echo --extra-index-url https://download.pytorch.org/whl/cpu > requirements.txt
+echo torch >> requirements.txt
+echo torchaudio >> requirements.txt
+echo librosa >> requirements.txt
+echo numpy >> requirements.txt
+echo soundfile >> requirements.txt

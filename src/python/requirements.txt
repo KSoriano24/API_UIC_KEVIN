@@ -1,0 +1,14 @@
+# IMPORTANTE: este archivo es un placeholder.
+# Genera el real desde tu entorno local con:
+#pip3 freeze > python/requirements.txt
+#
+# Basado en las variables de entorno que usas (MPLBACKEND, NUMBA_CACHE_DIR),
+# probablemente necesites al menos:
+matplotlib
+numba
+librosa
+numpy
+scipy
+reportlab  # o 
+fpdf2 # o la librería que uses para generar el PDF
+torch      # si tu clasificador usa un modelo de deep learning
