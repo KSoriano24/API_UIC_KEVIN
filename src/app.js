@@ -4,13 +4,11 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
 import audioRoutes from './routes/audioRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
 app.set('trust proxy', 1);
 
@@ -31,10 +29,8 @@ const allowedOrigins = [
   'http://localhost:4200',      // Angular 
   'https://tudominio.com',      // Dominio real
 ];
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Permite requests sin origin
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -65,10 +61,20 @@ const authLimiter = rateLimit({
   message: { mensaje: 'Demasiados intentos de acceso. Espera 5 minutos.' }
 });
 
-const audioLimiter = rateLimit({
+export const audioLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
   max: 5,              // máx 5 análisis por minuto por IP
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { mensaje: 'Límite de análisis alcanzado. Espera un momento.' }
+});
+
+export const estadoPdfLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 60,              // suficiente para el polling normal
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { mensaje: 'Demasiadas consultas de estado. Espera un momento.' }
 });
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
@@ -77,7 +83,8 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ─── Rutas ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/audio', audioLimiter, audioRoutes);
+app.use('/api/audio', audioRoutes); 
+
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ mensaje: 'Endpoint no encontrado' });
