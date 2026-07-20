@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 const KEY = Buffer.from(process.env.CRYPTO_KEY || 'g10wv0x$3cur3K3y#2024!AES256bit!!').slice(0, 32);
-
+console.log('CRYPTO_KEY length:', KEY.length, '| primeros/últimos bytes:', KEY.subarray(0,2).toString('hex'), KEY.subarray(-2).toString('hex'));
 export function decryptText(encryptedBase64) {
     try {
         // Limpiar caracteres que HTTP puede haber codificado
