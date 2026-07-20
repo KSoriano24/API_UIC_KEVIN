@@ -295,7 +295,7 @@ export const generarReportePDF = (data) => {
       proceso.kill();
       console.error(`PDF timeout para analisis_id=${data.analisis_id}`);
       resolve(null);
-    }, 120000);
+    }, 240000);
 
     proceso.on('close', (code) => {
       clearTimeout(timer);
