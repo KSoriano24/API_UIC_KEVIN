@@ -10,12 +10,12 @@ import cloudinary from '../config/cloudinary.js';
  */
 export async function subirReportePDF(localPath, analisisId) {
   const resultado = await cloudinary.uploader.upload(localPath, {
-    resource_type: 'raw',      
-    type: 'authenticated',     
+    resource_type: 'raw',
+    type: 'authenticated',
     folder: 'reportes-glowvox',
     public_id: `reporte_${analisisId}`,
     overwrite: true,
-    format: 'pdf',
+    
   });
   return resultado.public_id;
 }
@@ -23,7 +23,7 @@ export async function subirReportePDF(localPath, analisisId) {
 /**
  * Genera una URL firmada temporal para descargar un PDF privado.
  *
- * @param {string} publicId
+ * @param {string} publicId - public_id limpio, sin extensión (ej: "reportes-glowvox/reporte_123")
  * @param {number} minutosExpiracion
  * @returns {string} URL firmada, válida solo por minutosExpiracion
  */
