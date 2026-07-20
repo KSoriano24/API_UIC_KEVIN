@@ -10,47 +10,68 @@ const PYTHON_CMD = process.platform === 'win32'
 const NUMBA_CACHE_DIR = path.join(__dirname, '../uploads/__numba_cache__');
 if (!fs.existsSync(NUMBA_CACHE_DIR)) fs.mkdirSync(NUMBA_CACHE_DIR, { recursive: true });
 
-export const clasificar = (audioPath) => {
-  return new Promise((resolve, reject) => {
-    const pythonScript = path.join(__dirname, "../python/clasificador.py");
-    const pythonEnv = {
-      ...process.env,
-      MPLBACKEND: 'Agg',
-      NUMBA_CACHE_DIR,
-    };
-    const proceso = spawn(PYTHON_CMD, [pythonScript, audioPath], { env: pythonEnv });
-    let stdout = "";
-    let stderr = "";
+const PYTHON_SERVER_PORT = 8001;
+let pythonServerProcess = null;
+let servidorListo = false;
 
-    const timer = setTimeout(() => {
-      proceso.kill();
-      reject(new Error("Timeout: el proceso de clasificación tardó demasiado (>120s)"));
-    }, 120000);
+export function iniciarServidorPython() {
+  if (pythonServerProcess) return;
 
-    proceso.stdout.on("data", (data) => { stdout += data.toString(); });
-    proceso.stderr.on("data", (data) => { stderr += data.toString(); });
+  const scriptDir = path.join(__dirname, "../python");
+  const pythonEnv = { ...process.env, MPLBACKEND: 'Agg', NUMBA_CACHE_DIR };
 
-    proceso.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        return reject(new Error(
-          `Python terminó con código ${code}. stderr: ${stderr.slice(0, 500)} | stdout: ${stdout.slice(0, 500)}`
-        ));
-      }
-      try {
-        const resultado = JSON.parse(stdout.trim());
-        if (resultado.error) {
-          return reject(new Error(`Python reportó error: ${resultado.error}`));
-        }
-        resolve(resultado);
-      } catch (error) {
-        reject(new Error("Error parseando JSON de Python: " + stdout.slice(0, 500)));
-      }
-    });
+  pythonServerProcess = spawn(
+    PYTHON_CMD,
+    ["-m", "uvicorn", "servidor_clasificador:app", "--host", "127.0.0.1", "--port", String(PYTHON_SERVER_PORT)],
+    { cwd: scriptDir, env: pythonEnv }
+  );
 
-    proceso.on("error", (err) => {
-      clearTimeout(timer);
-      reject(new Error(`No se pudo iniciar Python: ${err.message}`));
-    });
+  pythonServerProcess.stdout.on("data", (d) => console.log(`[python-server] ${d}`));
+  pythonServerProcess.stderr.on("data", (d) => console.log(`[python-server] ${d}`));
+
+  pythonServerProcess.on("close", (code) => {
+    console.error(`Servidor Python de clasificación terminó con código ${code}`);
+    pythonServerProcess = null;
+    servidorListo = false;
   });
+}
+
+async function esperarServidorListo(maxIntentos = 90) {
+  for (let i = 0; i < maxIntentos; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${PYTHON_SERVER_PORT}/health`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.model_loaded) {
+          servidorListo = true;
+          return;
+        }
+      }
+    } catch {
+      // aún no responde, seguimos esperando
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error("El servidor Python de clasificación no arrancó a tiempo");
+}
+
+export const clasificar = async (audioPath) => {
+  if (!pythonServerProcess) iniciarServidorPython();
+  if (!servidorListo) await esperarServidorListo();
+
+  const respuesta = await fetch(`http://127.0.0.1:${PYTHON_SERVER_PORT}/clasificar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audio_path: audioPath }),
+  });
+
+  if (!respuesta.ok) {
+    throw new Error(`Servidor Python respondió con estado ${respuesta.status}`);
+  }
+
+  const resultado = await respuesta.json();
+  if (resultado.error) {
+    throw new Error(`Python reportó error: ${resultado.error}`);
+  }
+  return resultado;
 };
