@@ -24,7 +24,7 @@ const upload = multer({ storage, fileFilter, limits: { fileSize: MAX_SIZE } });
 
 const router = Router();
 
-router.post('/clasificar', upload.single('audio'), verificarToken, clasificarAudio);
+router.post('/clasificar', verificarToken, upload.single('audio'), clasificarAudio);
 router.get('/historial', verificarToken, obtenerHistorial);
 router.get('/estado-pdf/:analisis_id', verificarToken, obtenerEstadoPDF);
 router.get('/reportes/:analisis_id/descargar', verificarToken, limitadorDescargaReporte, descargarReporte);
