@@ -23,7 +23,7 @@ export async function subirReportePDF(localPath, analisisId) {
 /**
  * Genera una URL firmada temporal para descargar un PDF privado.
  *
- * @param {string} publicId - public_id limpio, sin extensión (ej: "reportes-glowvox/reporte_123")
+ * @param {string} publicId - public_id limpio, sin extensión
  * @param {number} minutosExpiracion
  * @returns {string} URL firmada, válida solo por minutosExpiracion
  */
