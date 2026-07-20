@@ -9,7 +9,7 @@ import { Agent } from "undici";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 1. URL DE TU HUGGING FACE SPACE (Reemplaza con tu URL directa obtenida en 'Embed this Space')
-const HF_SPACE_URL = "https://tu_usuario-tu_space.hf.space/clasificar"; 
+const HF_SPACE_URL = "https://kevin24sm-api-modelo.hf.space/clasificar"; 
 
 // 2. Configuramos un agente de Node para darle tiempo al modelo de procesar el audio sin colgarse
 const agentDispatcher = new Agent({
