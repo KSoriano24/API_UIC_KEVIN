@@ -17,7 +17,7 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 // ─── Reglas de validación de audio ─────────────────────────────────────────
 const FORMATOS_PERMITIDOS = ['.wav', '.flac', '.mp3', '.opus', '.ogg'];
 const MIN_DURACION_SEG = 4.0;
-const MAX_DURACION_SEG = 300.0; 
+const MAX_DURACION_SEG = 300.0;
 
 // ─── Helper: fecha actual en zona horaria de Guayaquil ────────────────────
 const fechaAhora = () =>
@@ -78,6 +78,38 @@ async function enviarPDFDesdeCloudinary(res, publicId, analisisId) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="reporte_glowvox_${analisisId}.pdf"`);
   res.send(buffer);
+}
+
+// ─── Helper: genera el PDF y lo sube a Cloudinary EN BACKGROUND ───────────
+// No se exporta como parte del request/response cycle: se dispara y el
+// resultado se refleja en la tabla `reportes` cuando termine. El frontend
+// se entera vía polling (ver obtenerEstadoPDF).
+function generarYSubirPDFEnBackground(pdfData, insertId) {
+  console.time(`pdf-gen-${insertId}`);
+  generarReportePDF(pdfData)
+    .then(async (reportePathLocal) => {
+      console.timeEnd(`pdf-gen-${insertId}`);
+
+      if (!reportePathLocal) {
+        console.warn(`PDF no generado para analisis_id=${insertId}`);
+        return;
+      }
+      try {
+        console.time(`cloudinary-upload-${insertId}`);
+        const publicId = await subirYLimpiar(reportePathLocal, insertId);
+        console.timeEnd(`cloudinary-upload-${insertId}`);
+
+        const fechaPDF = fechaAhora();
+        await conmysql.execute(
+          'UPDATE reportes SET reporte_public_id = ?, creado_en = ? WHERE analisis_id = ?',
+          [publicId, fechaPDF, insertId]
+        );
+        console.log(`PDF subido a Cloudinary para analisis_id=${insertId}: ${publicId}`);
+      } catch (err) {
+        console.error('Error subiendo PDF a Cloudinary:', err);
+      }
+    })
+    .catch(err => console.error('Error background PDF:', err));
 }
 
 // ─── Clasificar audio ──────────────────────────────────────────────────────
@@ -163,7 +195,6 @@ export const clasificarAudio = async (req, res) => {
     const fechaAnalisis = fechaAhora();
 
     let insertId = null;
-    let reportePublicId = null;
 
     if (usuarioId) {
       const [dbResult] = await conmysql.execute(
@@ -196,8 +227,6 @@ export const clasificarAudio = async (req, res) => {
         [usuarioId, insertId, resumen, nivelRiesgo, recomendaciones, JSON.stringify(resultado.bloques || [])]
       );
 
-      // ─── PDF: ahora se ESPERA (await) a que termine, para que el   ───
-      // ─── frontend pueda descargar de inmediato al recibir la respuesta ──
       if (fs.existsSync(audioPath)) {
         const fechaGeneracion = fechaAhora();
 
@@ -214,31 +243,8 @@ export const clasificarAudio = async (req, res) => {
           fecha: fechaGeneracion,
         };
 
-        try {
-          console.time(`pdf-gen-${insertId}`);
-          const reportePathLocal = await generarReportePDF(pdfData);
-          console.timeEnd(`pdf-gen-${insertId}`);
-
-          if (reportePathLocal) {
-            console.time(`cloudinary-upload-${insertId}`);
-            const publicId = await subirYLimpiar(reportePathLocal, insertId);
-            console.timeEnd(`cloudinary-upload-${insertId}`);
-
-            const fechaPDF = fechaAhora();
-
-            await conmysql.execute(
-              'UPDATE reportes SET reporte_public_id = ?, creado_en = ? WHERE analisis_id = ?',
-              [publicId, fechaPDF, insertId]
-            );
-
-            reportePublicId = publicId;
-            console.log(`PDF subido a Cloudinary para analisis_id=${insertId}: ${publicId}`);
-          } else {
-            console.warn(`PDF no generado para analisis_id=${insertId}`);
-          }
-        } catch (err) {
-          console.error('Error generando/subiendo PDF:', err);
-        }
+        // Se dispara en background: la respuesta al frontend no espera esto.
+        generarYSubirPDFEnBackground(pdfData, insertId);
 
       } else {
         console.warn(`Audio no encontrado para generar PDF: ${audioPath}`);
@@ -248,8 +254,8 @@ export const clasificarAudio = async (req, res) => {
     return res.json({
       mensaje: 'Clasificación realizada',
       analisis_id: insertId,
-      reporte_id: reportePublicId ? insertId : null,
-      pdf_listo: !!reportePublicId,
+      reporte_id: null,
+      pdf_listo: false, // el frontend debe hacer polling a /audio/estado-pdf/:analisis_id
       ...resultado
     });
 
@@ -353,6 +359,34 @@ export const generarReportePDF = (data) => {
   });
 };
 
+// ─── Estado del PDF (para polling desde el frontend) ──────────────────────
+export const obtenerEstadoPDF = async (req, res) => {
+  try {
+    const payload = req.usuario ?? obtenerUsuarioDeToken(req);
+    if (!payload) return res.status(401).json({ error: 'No autorizado' });
+
+    const { analisis_id } = req.params;
+
+    const [rows] = await conmysql.execute(
+      `SELECT r.reporte_public_id
+       FROM reportes r
+       JOIN analisis_audios a ON a.id = r.analisis_id
+       WHERE r.analisis_id = ? AND a.usuario_id = ?`,
+      [analisis_id, payload.id]
+    );
+
+    if (!rows.length) {
+      return res.json({ pdf_listo: false });
+    }
+
+    return res.json({ pdf_listo: !!rows[0].reporte_public_id });
+
+  } catch (error) {
+    console.error('Error obteniendo estado del PDF:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
+
 // ─── Obtener historial ─────────────────────────────────────────────────────
 export const obtenerHistorial = async (req, res) => {
   try {
@@ -419,14 +453,12 @@ export const descargarReporte = async (req, res) => {
 
     const analisis = rows[0];
 
-    // Caso 1: ya existe un PDF subido a Cloudinary (reporte_public_id)
     if (analisis.reporte_public_id) {
       try {
         await enviarPDFDesdeCloudinary(res, analisis.reporte_public_id, analisis_id);
         return;
       } catch (err) {
         console.error('Error obteniendo PDF de Cloudinary, se regenerará:', err.message);
-        
       }
     }
 
@@ -467,7 +499,6 @@ export const descargarReporte = async (req, res) => {
       return res.status(500).json({ error: 'Error generando reporte' });
     }
 
-    // Sube el PDF recién generado a Cloudinary y limpia el temporal local
     let publicId;
     try {
       publicId = await subirYLimpiar(reportePathLocal, analisis.id);
