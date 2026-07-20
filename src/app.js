@@ -61,21 +61,6 @@ const authLimiter = rateLimit({
   message: { mensaje: 'Demasiados intentos de acceso. Espera 5 minutos.' }
 });
 
-export const audioLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 5,              // máx 5 análisis por minuto por IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { mensaje: 'Límite de análisis alcanzado. Espera un momento.' }
-});
-
-export const estadoPdfLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 60,              // suficiente para el polling normal
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { mensaje: 'Demasiadas consultas de estado. Espera un momento.' }
-});
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
@@ -83,7 +68,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ─── Rutas ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/audio', audioRoutes); 
+app.use('/api/audio', audioRoutes); // los limiters se aplican dentro de audioRoutes.js por ruta
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
