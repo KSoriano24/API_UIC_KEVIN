@@ -9,7 +9,7 @@ export const limitadorDescargaReporte = rateLimit({
     // Preferimos limitar por usuario autenticado; si no hay token, por IP
     return req.usuario?.id
       ? `user_${req.usuario.id}`
-      : req.ip;
+      : ipKeyGenerator(req.ip);
   },
   message: {
     error: 'Demasiadas descargas de reportes en poco tiempo. Intenta de nuevo en unos minutos.',
