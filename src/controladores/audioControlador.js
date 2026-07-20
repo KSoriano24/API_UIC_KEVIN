@@ -163,6 +163,7 @@ export const clasificarAudio = async (req, res) => {
     const fechaAnalisis = fechaAhora();
 
     let insertId = null;
+    let reportePublicId = null;
 
     if (usuarioId) {
       const [dbResult] = await conmysql.execute(
@@ -195,6 +196,8 @@ export const clasificarAudio = async (req, res) => {
         [usuarioId, insertId, resumen, nivelRiesgo, recomendaciones, JSON.stringify(resultado.bloques || [])]
       );
 
+      // ─── PDF: ahora se ESPERA (await) a que termine, para que el   ───
+      // ─── frontend pueda descargar de inmediato al recibir la respuesta ──
       if (fs.existsSync(audioPath)) {
         const fechaGeneracion = fechaAhora();
 
@@ -211,25 +214,34 @@ export const clasificarAudio = async (req, res) => {
           fecha: fechaGeneracion,
         };
 
-        // Genera el PDF localmente y luego lo sube a Cloudinary
-        generarReportePDF(pdfData).then(async (reportePathLocal) => {
-          if (!reportePathLocal) {
-            console.warn(`PDF no generado para analisis_id=${insertId}`);
-            return;
-          }
-          try {
+        try {
+          console.time(`pdf-gen-${insertId}`);
+          const reportePathLocal = await generarReportePDF(pdfData);
+          console.timeEnd(`pdf-gen-${insertId}`);
+
+          if (reportePathLocal) {
+            console.time(`cloudinary-upload-${insertId}`);
             const publicId = await subirYLimpiar(reportePathLocal, insertId);
+            console.timeEnd(`cloudinary-upload-${insertId}`);
+
             const fechaPDF = fechaAhora();
 
             await conmysql.execute(
               'UPDATE reportes SET reporte_public_id = ?, creado_en = ? WHERE analisis_id = ?',
               [publicId, fechaPDF, insertId]
             );
+
+            reportePublicId = publicId;
             console.log(`PDF subido a Cloudinary para analisis_id=${insertId}: ${publicId}`);
-          } catch (err) {
-            console.error('Error subiendo PDF a Cloudinary:', err);
+          } else {
+            console.warn(`PDF no generado para analisis_id=${insertId}`);
           }
-        }).catch(err => console.error('Error background PDF:', err));
+        } catch (err) {
+          // No tumbamos la respuesta completa: el análisis ya se guardó,
+          // solo el PDF falló. El usuario podrá reintentar la descarga
+          // y el flujo de "regenerar" en descargarReporte se hará cargo.
+          console.error('Error generando/subiendo PDF:', err);
+        }
 
       } else {
         console.warn(`Audio no encontrado para generar PDF: ${audioPath}`);
@@ -239,7 +251,8 @@ export const clasificarAudio = async (req, res) => {
     return res.json({
       mensaje: 'Clasificación realizada',
       analisis_id: insertId,
-      reporte_id: null,
+      reporte_id: reportePublicId ? insertId : null,
+      pdf_listo: !!reportePublicId,
       ...resultado
     });
 
@@ -295,7 +308,7 @@ export const generarReportePDF = (data) => {
       proceso.kill();
       console.error(`PDF timeout para analisis_id=${data.analisis_id}`);
       resolve(null);
-    }, 240000);
+    }, 120000);
 
     proceso.on('close', (code) => {
       clearTimeout(timer);
