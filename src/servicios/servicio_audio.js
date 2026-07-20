@@ -5,7 +5,7 @@ import fs from "fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 1. URL DE TU HUGGING FACE SPACE
-const HF_SPACE_URL = "https://tu_usuario-tu_space.hf.space/clasificar"; 
+const HF_SPACE_URL = "https://hf.space/embed/tu_usuario/tu_nombre_del_space/+/clasificar"; 
 
 export function iniciarServidorPython() {
   console.log("[Node] Conectado exitosamente con el servidor remoto en Hugging Face.");
