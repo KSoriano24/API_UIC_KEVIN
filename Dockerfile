@@ -16,7 +16,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 # ── Dependencias de Python ──────────────────────────────────────────────────
-COPY python/requirements.txt ./python/requirements.txt
+COPY src/python/requirements.txt ./src/python/requirements.txt
 RUN pip3 install --break-system-packages --no-cache-dir -r src/python/requirements.txt
 # ── Resto del código ─────────────────────────────────────────────────────────
 COPY . .
