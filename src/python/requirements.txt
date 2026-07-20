@@ -13,3 +13,5 @@ reportlab  # o
 fpdf2 # o la librería que uses para generar el PDF
 torch      # si tu clasificador usa un modelo de deep learning
 torchaudio
+fastapi
+uvicorn
