@@ -27,7 +27,7 @@ app.use(helmet.contentSecurityPolicy({
 const allowedOrigins = [
   'http://localhost:8100',      // Ionic 
   'http://localhost:4200',      // Angular 
-  'https://tudominio.com',      // Dominio real
+  'https://sistemadeepfake.web.app',      // Dominio real
 ];
 app.use(cors({
   origin: (origin, callback) => {
