@@ -26,7 +26,8 @@ app.use(helmet.contentSecurityPolicy({
 // ─── CORS restrictivo ─────────────────────────────────────────────────────────
 const allowedOrigins = [
   'http://localhost:8100',      // Ionic 
-  'http://localhost:4200',      // Angular 
+  'http://localhost:4200',
+  'http://127.0.0.1:8080',// Angular 
   'https://sistemadeepfake.web.app',
   'https://sistemadeepfake.firebaseapp.com'// Dominio real
 ];
