@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -12,9 +13,23 @@ import soundfile as sf
 import soxr
 
 os.environ['MPLBACKEND'] = 'Agg'
-os.environ['NUMBA_CACHE_DIR'] = os.path.join(os.path.dirname(__file__), '__numba_cache__')
 
-import json, traceback, tempfile, shutil, warnings, threading
+_numba_cache_dir = os.path.join(os.path.dirname(__file__), '__numba_cache__')
+try:
+    os.makedirs(_numba_cache_dir, exist_ok=True)
+    _probe = os.path.join(_numba_cache_dir, '.write_test')
+    with open(_probe, 'w') as _f:
+        _f.write('ok')
+    os.remove(_probe)
+except OSError as _e:
+    print(f'[WARN] NUMBA_CACHE_DIR no escribible ({_numba_cache_dir}): {_e}. '
+          f'Usando tempdir del proceso (sin cache persistente entre ejecuciones).',
+          file=sys.stderr)
+    _numba_cache_dir = tempfile.mkdtemp(prefix='numba_cache_')
+
+os.environ['NUMBA_CACHE_DIR'] = _numba_cache_dir
+
+import json, traceback, shutil, warnings, threading
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -61,6 +76,8 @@ UMBRAL_DECISION = 0.5
 WINDOW_SEC = 5.0
 OVERLAP = 0.5
 STRIDE_SEC = WINDOW_SEC * (1 - OVERLAP)
+
+VISUAL_TIMEOUT_SEC = 90
 
 
 def clasificar_veredicto(veredicto):
@@ -429,10 +446,14 @@ def analizar_audio_visual(audio_path, img_out, bloques):
 
     hilo = threading.Thread(target=_run, daemon=True)
     hilo.start()
-    hilo.join(timeout=180)
+    hilo.join(timeout=VISUAL_TIMEOUT_SEC)
 
     if hilo.is_alive():
-        resultado['error'] = 'Timeout: analisis tardo mas de 180 segundos'
+        resultado['error'] = f'Timeout: analisis tardo mas de {VISUAL_TIMEOUT_SEC} segundos'
+        resultado['ok'] = False
+        # El hilo daemon sigue vivo en background (Python no permite matarlo de forma
+        # segura). Seguimos sin la imagen para no consumir el poco tiempo que queda
+        # antes de que Node mate el proceso completo por su propio timeout.
 
     return resultado
 
