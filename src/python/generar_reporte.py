@@ -15,17 +15,31 @@ import soxr
 os.environ['MPLBACKEND'] = 'Agg'
 
 _numba_cache_dir = os.path.join(os.path.dirname(__file__), '__numba_cache__')
-try:
-    os.makedirs(_numba_cache_dir, exist_ok=True)
-    _probe = os.path.join(_numba_cache_dir, '.write_test')
-    with open(_probe, 'w') as _f:
-        _f.write('ok')
-    os.remove(_probe)
-except OSError as _e:
-    print(f'[WARN] NUMBA_CACHE_DIR no escribible ({_numba_cache_dir}): {_e}. '
-          f'Usando tempdir del proceso (sin cache persistente entre ejecuciones).',
-          file=sys.stderr)
-    _numba_cache_dir = tempfile.mkdtemp(prefix='numba_cache_')
+_fallback_dir = os.path.join(tempfile.gettempdir(), 'glowvox_numba_cache')
+
+def _dir_escribible(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, '.write_test')
+        with open(probe, 'w') as f:
+            f.write('ok')
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+if not _dir_escribible(_numba_cache_dir):
+    print(f'[WARN] NUMBA_CACHE_DIR junto al script no escribible ({_numba_cache_dir}). '
+          f'Usando path fijo persistente en tempdir: {_fallback_dir}', file=sys.stderr)
+    if _dir_escribible(_fallback_dir):
+        _numba_cache_dir = _fallback_dir
+    else:
+        # Ultimo recurso: si ni siquiera el tempdir del sistema es escribible,
+        # usamos igual este path fijo (NO aleatorio), para que al menos entre
+        # ejecuciones del MISMO contenedor/instancia se reutilice el cache.
+        print(f'[WARN] Tempdir del sistema tampoco escribible. Se usara igual '
+              f'{_fallback_dir} sin verificacion previa.', file=sys.stderr)
+        _numba_cache_dir = _fallback_dir
 
 os.environ['NUMBA_CACHE_DIR'] = _numba_cache_dir
 
@@ -77,6 +91,11 @@ WINDOW_SEC = 5.0
 OVERLAP = 0.5
 STRIDE_SEC = WINDOW_SEC * (1 - OVERLAP)
 
+# Timeout interno del hilo de generacion de la visualizacion (matplotlib + librosa).
+# Debe quedar POR DEBAJO del timeout que aplica Node (audioController.js, actualmente 120s),
+# con margen suficiente para que el resto del PDF (reportlab) alcance a construirse y
+# escribirse antes de que Node mate el proceso completo. Si cambias el timeout en Node,
+# actualiza este valor en consecuencia (ideal: NODE_TIMEOUT - 20/30s de margen).
 VISUAL_TIMEOUT_SEC = 90
 
 
