@@ -1,21 +1,11 @@
 import os
 import sys
 import tempfile
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
-import librosa
-import librosa.display
-import soundfile as sf
-import soxr
 
-os.environ['MPLBACKEND'] = 'Agg'
+# ─── Cache dirs (numba + matplotlib) — DEBEN fijarse ANTES de importar ────
+# matplotlib/numba, si no, cada uno intenta resolver su propio default primero.
+_base_dir = os.path.dirname(os.path.abspath(__file__))
 
-_numba_cache_dir = os.path.join(os.path.dirname(__file__), '__numba_cache__')
-_fallback_dir = os.path.join(tempfile.gettempdir(), 'glowvox_numba_cache')
 
 def _dir_escribible(path):
     try:
@@ -28,20 +18,45 @@ def _dir_escribible(path):
     except OSError:
         return False
 
-if not _dir_escribible(_numba_cache_dir):
-    print(f'[WARN] NUMBA_CACHE_DIR junto al script no escribible ({_numba_cache_dir}). '
-          f'Usando path fijo persistente en tempdir: {_fallback_dir}', file=sys.stderr)
-    if _dir_escribible(_fallback_dir):
-        _numba_cache_dir = _fallback_dir
-    else:
-        # Ultimo recurso: si ni siquiera el tempdir del sistema es escribible,
-        # usamos igual este path fijo (NO aleatorio), para que al menos entre
-        # ejecuciones del MISMO contenedor/instancia se reutilice el cache.
-        print(f'[WARN] Tempdir del sistema tampoco escribible. Se usara igual '
-              f'{_fallback_dir} sin verificacion previa.', file=sys.stderr)
-        _numba_cache_dir = _fallback_dir
 
-os.environ['NUMBA_CACHE_DIR'] = _numba_cache_dir
+def _resolver_cache_dir(nombre):
+    """
+    Intenta usar una carpeta persistente junto al script (para que el cache
+    sobreviva entre deploys si se versiona en git, como __numba_cache__).
+    Si no es escribible, cae a un path fijo (NO aleatorio) en tempdir, para
+    que al menos se reutilice entre ejecuciones del mismo contenedor/instancia.
+    """
+    principal = os.path.join(_base_dir, nombre)
+    fallback = os.path.join(tempfile.gettempdir(), f'glowvox_{nombre.strip("_")}')
+
+    if _dir_escribible(principal):
+        return principal
+
+    print(f'[WARN] {nombre} junto al script no escribible ({principal}). '
+          f'Usando path fijo persistente en tempdir: {fallback}', file=sys.stderr)
+
+    if _dir_escribible(fallback):
+        return fallback
+
+    print(f'[WARN] Tempdir del sistema tampoco escribible. Se usara igual '
+          f'{fallback} sin verificacion previa.', file=sys.stderr)
+    return fallback
+
+
+os.environ['NUMBA_CACHE_DIR'] = _resolver_cache_dir('__numba_cache__')
+os.environ['MPLCONFIGDIR']    = _resolver_cache_dir('__mpl_cache__')
+os.environ['MPLBACKEND']      = 'Agg'
+
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.patches as mpatches
+import librosa
+import librosa.display
+import soundfile as sf
+import soxr
 
 import json, traceback, shutil, warnings, threading
 from datetime import datetime
@@ -100,7 +115,7 @@ VISUAL_TIMEOUT_SEC = 90
 
 
 def clasificar_veredicto(veredicto):
-    
+
     v = (veredicto or '').upper()
     if 'FAKE' in v:
         return 'FAKE'
@@ -282,7 +297,7 @@ def analizar_audio_visual(audio_path, img_out, bloques):
         try:
             warnings.filterwarnings('ignore')
 
-            SR = 16000; N_MELS = 128; N_FFT = 1024; HOP = 256
+            SR = 16000; N_MELS = 128; N_FFT = 1024
             TOP_DB_TRIM = 30.0
 
             try:
@@ -294,14 +309,23 @@ def analizar_audio_visual(audio_path, img_out, bloques):
                 audio_raw = audio_raw.mean(axis=axis).astype(np.float32)
             audio_raw = audio_raw.astype(np.float32)
 
+            # NOTA: este resampleo es solo para la IMAGEN del reporte (no alimenta
+            # al modelo, la clasificacion ya ocurrio antes en servicio_audio.js).
+            # Por eso usamos "HQ" en vez de "VHQ": suficiente fidelidad visual,
+            # notablemente mas rapido en audios largos.
             if sr_in == SR:
                 resampled = audio_raw
             else:
-                resampled = soxr.resample(audio_raw, sr_in, SR, quality="VHQ").astype(np.float32)
+                resampled = soxr.resample(audio_raw, sr_in, SR, quality="HQ").astype(np.float32)
 
             y, _ = librosa.effects.trim(resampled, top_db=TOP_DB_TRIM)
             sr = SR
             duracion = float(len(y) / sr)
+
+            # Resolucion temporal del mel-spectrograma: en audios largos, un hop
+            # mas grande reduce el numero de frames (y el costo de computo/dibujo)
+            # sin perdida visual apreciable en una imagen de este tamano.
+            HOP = 256 if duracion <= 60 else 512
 
             mel_db = librosa.power_to_db(
                 librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, n_fft=N_FFT, hop_length=HOP),
@@ -454,7 +478,9 @@ def analizar_audio_visual(audio_path, img_out, bloques):
                 ax2.set_ylabel('Score (0 = REAL, 1 = FAKE)', fontsize=8)
                 ax2.set_xlabel('Bloque de origen de cada ventana', fontsize=8)
 
-            fig.savefig(img_out, dpi=150, bbox_inches='tight', facecolor=BG, edgecolor='none')
+            # dpi 130 (antes 150) y sin bbox_inches='tight' (evita un segundo
+            # render completo de la figura solo para recalcular el bbox).
+            fig.savefig(img_out, dpi=130, facecolor=BG, edgecolor='none')
             plt.close(fig)
 
             resultado['ok'] = True
@@ -484,7 +510,7 @@ def fmt_tiempo(seg):
 
 
 def formatear_veredicto_display(veredicto):
-    
+
     return (veredicto or '').split('/')[0].strip()
 
 
@@ -496,8 +522,6 @@ def resumen_bloques(bloques):
         col = FAKE_COL if cat == 'FAKE' else (WARN_COL if cat == 'INCONSISTENTE' else REAL_COL)
         nota = ' ⚠' if b.get('duracion_insuficiente') else ''
         scores = b.get('scores', [])
-        # Conteo real de ventanas por lado del umbral dentro del bloque
-        # Se calcula igual para las 3 categorías de veredicto (FAKE, REAL O INCONSISTENTE)
         n_fake = sum(1 for s in scores if s >= UMBRAL_DECISION)
         n_real = len(scores) - n_fake
         filas.append({
