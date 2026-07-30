@@ -286,17 +286,15 @@ export const generarReportePDF = (data) => {
 
     console.log(`Iniciando Python para analisis_id=${data.analisis_id}`);
 
-    const pythonEnv = {
-      ...process.env,
-      MPLBACKEND: 'Agg',
-      NUMBA_CACHE_DIR: path.join(__dirname, '../uploads/__numba_cache__'),
-    };
-
+    // NUMBA_CACHE_DIR y MPLCONFIGDIR ya no se fijan aquí: generar_reporte.py
+    // resuelve ambos paths internamente (con su propio fallback a tempdir si
+    // el path junto al script no es escribible), así que basta con heredar
+    // el entorno del proceso de Node tal cual.
     const proceso = spawn(pythonCmd, [
       pythonScript,
       JSON.stringify(data),
       outputPath
-    ], { env: pythonEnv });
+    ], { env: process.env });
 
     let stdout = '';
     let stderr = '';
